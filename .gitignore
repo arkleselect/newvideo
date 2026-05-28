@@ -1,0 +1,22 @@
+.DS_Store
+
+# Video inputs/outputs
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.m4v
+*.webm
+*.ts
+*.m2ts
+*.mts
+*.3gp
+*.flv
+
+# App data
+uploads/
+exports/
+.ffmpeg-passlog/
+
+# Temp / logs
+*.log

@@ -1,0 +1,10 @@
+{
+  "name": "lan-video-compressor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Batch video compressor with LAN-accessible web UI.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

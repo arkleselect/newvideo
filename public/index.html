@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Batch Video Compressor</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+</head>
+
+<body>
+  <div class="shell">
+    <main class="grid">
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Uploads</p>
+            <h2>上传与处理状态</h2>
+            <p class="section-hint">支持批量上传。上传完成后点击开始处理全部已上传文件。</p>
+          </div>
+          <button id="refreshButton" class="ghost-button" type="button">
+            刷新状态
+          </button>
+        </div>
+        <div class="upload-zone">
+          <input id="uploadInput" type="file" multiple hidden accept="video/*" />
+          <p class="upload-title">批量上传视频文件</p>
+          <p id="uploadStatus" class="upload-subtitle">选择多个视频文件后上传。</p>
+          
+          <div class="upload-progress">
+            <div class="progress-bar">
+              <div id="uploadProgressFill" class="progress-fill"></div>
+            </div>
+            <span id="uploadProgressText" class="progress-text">0%</span>
+          </div>
+          <div class="upload-actions">
+            <button id="uploadButton" class="ghost-button" type="button">
+              选择文件上传
+            </button>
+            <button id="submitButton" class="primary-button" type="button">
+              开始处理全部
+            </button>
+            <button id="interruptButton" class="ghost-button hidden" type="button">
+              中断任务
+            </button>
+          </div>
+        </div>
+        <div class="summary-grid">
+<div class="profile-switch">
+            <label class="profile-option">
+              <input type="radio" name="encodeProfile" value="tight" checked />
+              <span>
+                <strong>H.265 / HEVC</strong>
+                <em>体积更小，音频更激进。</em>
+              </span>
+            </label>
+            <!-- <label class="profile-option">
+              <input type="radio" name="encodeProfile" value="compat" />
+              <span>
+                <strong>libx265 + hvc1 + AAC</strong>
+                <em>同样是 HEVC，音频更宽松，体积会略大。</em>
+              </span>
+            </label> -->
+            <!-- <label class="profile-option">
+              <input type="radio" name="encodeProfile" value="h264" />
+              <span>
+                <strong>H.264</strong>
+                <em>兼容性最好，音频已先压低，但体积通常还是比 HEVC 更大。</em>
+              </span>
+            </label> -->
+          </div>
+          <div class="concurrency-switch">
+            <span class="switch-label">并行处理</span>
+            <label><input type="radio" name="jobConcurrency" value="1" checked /> 1 个</label>
+            <label><input type="radio" name="jobConcurrency" value="2" /> 2 个</label>
+            <label><input type="radio" name="jobConcurrency" value="3" /> 3 个</label>
+          </div>
+          <article class="summary-card">
+            <button id="deleteUploadsButton" class="card-delete-button hidden" type="button">
+              删除
+            </button>
+            <span>已上传文件</span>
+            <strong id="fileCount">0</strong>
+          </article>
+          <article class="summary-card">
+            <button id="deleteCurrentButton" class="card-delete-button hidden" type="button">
+              删除
+            </button>
+            <span>当前处理</span>
+            <strong id="currentFile">-</strong>
+          </article>
+        </div>
+        <div id="jobState" class="job-state empty">等待上传后开始处理。</div>
+        <div class="progress-wrap">
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <span id="progressText" class="progress-text">0%</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Exports</p>
+            <h2>已完成视频</h2>
+            <p class="section-hint">这里显示已经处理完成、可以直接下载的视频。</p>
+          </div>
+          <div class="section-actions">
+            <a id="archiveButton" class="ghost-button hidden" href="#">
+              打包下载 ZIP
+            </a>
+          </div>
+        </div>
+        <div id="resultList" class="result-list empty">
+          处理完成后，可下载的视频会显示在这里。
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app/app.js" defer></script>
+</body>
+
+</html>
