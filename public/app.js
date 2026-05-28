@@ -13,8 +13,10 @@ const state = {
 };
 
 const uploadInput = document.querySelector("#uploadInput");
+const uploadFolderInput = document.querySelector("#uploadFolderInput");
 const uploadZone = document.querySelector(".upload-zone");
 const uploadButton = document.querySelector("#uploadButton");
+const uploadFolderButton = document.querySelector("#uploadFolderButton");
 const submitButton = document.querySelector("#submitButton");
 const interruptButton = document.querySelector("#interruptButton");
 const refreshButton = document.querySelector("#refreshButton");
@@ -46,13 +48,16 @@ async function fetchJson(url, options) {
   return data;
 }
 
-function uploadFileWithProgress(file, onProgress) {
+function uploadFileWithProgress(file, relativePath, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", "/api/upload");
     xhr.responseType = "json";
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+    if (relativePath) {
+      xhr.setRequestHeader("X-Relative-Path", encodeURIComponent(relativePath));
+    }
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -228,7 +233,10 @@ async function refreshJobs() {
 }
 
 async function uploadFiles(files) {
-  const videoFiles = Array.from(files).filter((file) => {
+  const videoFiles = Array.from(files).map((file) => ({
+    file,
+    relativePath: file.webkitRelativePath || file.name
+  })).filter(({ file }) => {
     const ext = `.${file.name.split(".").pop().toLowerCase()}`;
     return supportedExtensions.has(ext);
   });
@@ -241,23 +249,26 @@ async function uploadFiles(files) {
 
   state.isUploading = true;
   state.uploadProgress = 0;
-  state.uploadTotalBytes = videoFiles.reduce((sum, file) => sum + file.size, 0);
+  state.uploadTotalBytes = videoFiles.reduce((sum, item) => sum + item.file.size, 0);
   state.uploadUploadedBytes = 0;
-  state.uploadHint = `正在上传 ${videoFiles.length} 个文件…`;
+  const folderCount = new Set(videoFiles.map((item) => (item.relativePath.includes("/") ? item.relativePath.split("/")[0] : "根目录"))).size;
+  state.uploadHint = `正在上传 ${videoFiles.length} 个文件，来自 ${folderCount} 个文件夹…`;
   renderUploadStatus();
 
   try {
     for (const [index, file] of videoFiles.entries()) {
-      state.uploadHint = `上传 ${index + 1}/${videoFiles.length}: ${file.name}`;
+      const relativePath = file.relativePath || file.file.name;
+      const folderLabel = relativePath.includes("/") ? relativePath.split("/")[0] : "根目录";
+      state.uploadHint = `上传 ${index + 1}/${videoFiles.length}: ${relativePath}（${folderLabel}）`;
       renderUploadStatus();
-      await uploadFileWithProgress(file, (loaded, total) => {
+      await uploadFileWithProgress(file.file, relativePath, (loaded, total) => {
         state.uploadProgress = state.uploadTotalBytes
           ? ((state.uploadUploadedBytes + loaded) / state.uploadTotalBytes) * 100
           : 0;
-        state.uploadHint = `上传 ${index + 1}/${videoFiles.length}: ${file.name} (${((loaded / total) * 100).toFixed(2)}%)`;
+        state.uploadHint = `上传 ${index + 1}/${videoFiles.length}: ${relativePath} (${((loaded / total) * 100).toFixed(2)}%)`;
         renderUploadStatus();
       });
-      state.uploadUploadedBytes += file.size;
+      state.uploadUploadedBytes += file.file.size;
       state.uploadProgress = state.uploadTotalBytes
         ? (state.uploadUploadedBytes / state.uploadTotalBytes) * 100
         : 0;
@@ -332,6 +343,7 @@ async function interruptJob() {
 }
 
 uploadButton.addEventListener("click", () => uploadInput.click());
+uploadFolderButton.addEventListener("click", () => uploadFolderInput.click());
 uploadZone.addEventListener("click", (event) => {
   if (event.target.closest("button, a, input")) return;
   uploadInput.click();
@@ -366,6 +378,13 @@ uploadInput.addEventListener("change", () => {
     uploadFiles(uploadInput.files);
   }
   uploadInput.value = "";
+});
+
+uploadFolderInput.addEventListener("change", () => {
+  if (uploadFolderInput.files && uploadFolderInput.files.length) {
+    uploadFiles(uploadFolderInput.files);
+  }
+  uploadFolderInput.value = "";
 });
 
 encodeProfileInputs.forEach((input) => {

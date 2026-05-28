@@ -24,6 +24,7 @@
         </div>
         <div class="upload-zone">
           <input id="uploadInput" type="file" multiple hidden accept="video/*" />
+          <input id="uploadFolderInput" type="file" multiple hidden accept="video/*" webkitdirectory directory />
           <p class="upload-title">批量上传视频文件</p>
           <p id="uploadStatus" class="upload-subtitle">选择多个视频文件后上传。</p>
           
@@ -37,6 +38,9 @@
             <button id="uploadButton" class="ghost-button" type="button">
               选择文件上传
             </button>
+            <button id="uploadFolderButton" class="ghost-button" type="button">
+              选择文件夹上传
+            </button>
             <button id="submitButton" class="primary-button" type="button">
               开始处理全部
             </button>
@@ -46,7 +50,7 @@
           </div>
         </div>
         <div class="summary-grid">
-<div class="profile-switch">
+          <div class="profile-switch">
             <label class="profile-option">
               <input type="radio" name="encodeProfile" value="tight" checked />
               <span>
@@ -54,20 +58,20 @@
                 <em>体积更小，音频更激进。</em>
               </span>
             </label>
-            <!-- <label class="profile-option">
+            <label class="profile-option">
               <input type="radio" name="encodeProfile" value="compat" />
               <span>
                 <strong>libx265 + hvc1 + AAC</strong>
                 <em>同样是 HEVC，音频更宽松，体积会略大。</em>
               </span>
-            </label> -->
-            <!-- <label class="profile-option">
+            </label>
+            <label class="profile-option">
               <input type="radio" name="encodeProfile" value="h264" />
               <span>
                 <strong>H.264</strong>
                 <em>兼容性最好，音频已先压低，但体积通常还是比 HEVC 更大。</em>
               </span>
-            </label> -->
+            </label>
           </div>
           <div class="concurrency-switch">
             <span class="switch-label">并行处理</span>

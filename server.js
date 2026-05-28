@@ -236,27 +236,37 @@ async function migrateLegacyArtifactsToClient(clientId) {
 
 async function listSourceVideos(clientId) {
   const { uploadDir } = await ensureClientDirs(clientId);
-  const entries = await fsp.readdir(uploadDir, { withFileTypes: true });
   const files = [];
 
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (entry.name.startsWith(".")) continue;
+  async function walk(currentDir) {
+    const entries = await fsp.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const entryPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
 
-    const ext = path.extname(entry.name).toLowerCase();
-    if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
-    if (GENERATED_NAME_PATTERNS.some((pattern) => pattern.test(entry.name))) continue;
+      const relativePath = path.relative(uploadDir, entryPath).split(path.sep).join("/");
+      const ext = path.posix.extname(relativePath).toLowerCase();
+      const baseName = path.posix.basename(relativePath);
+      if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+      if (GENERATED_NAME_PATTERNS.some((pattern) => pattern.test(baseName))) continue;
 
-    const filePath = path.join(uploadDir, entry.name);
-    const stats = await fsp.stat(filePath);
-    files.push({
-      name: entry.name,
-      size: stats.size,
-      modifiedAt: stats.mtimeMs
-    });
+      const stats = await fsp.stat(entryPath);
+      files.push({
+        name: relativePath,
+        size: stats.size,
+        modifiedAt: stats.mtimeMs,
+        folder: relativePath.includes("/") ? relativePath.split("/")[0] : ""
+      });
+    }
   }
 
-  files.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  await walk(uploadDir);
+  files.sort((a, b) => a.name.localeCompare(b.name, "en"));
   return files;
 }
 
@@ -349,6 +359,33 @@ function percentageFor(index, total, partial) {
 
 function sanitizeBaseName(name) {
   return name.replace(/[^\p{L}\p{N}\-_]+/gu, "_");
+}
+
+function sanitizePathSegment(name) {
+  const cleaned = String(name)
+    .replace(/[\/\\]+/g, "_")
+    .replace(/[^\p{L}\p{N}\-_ .]+/gu, "_")
+    .trim();
+  return cleaned || "file";
+}
+
+function normalizeRelativePath(inputPath) {
+  if (typeof inputPath !== "string") return null;
+  const normalized = path.posix.normalize(inputPath.replace(/\\/g, "/").trim());
+  if (!normalized || normalized === "." || normalized.startsWith("..") || path.posix.isAbsolute(normalized)) {
+    return null;
+  }
+
+  const segments = normalized.split("/").filter(Boolean).map(sanitizePathSegment);
+  if (!segments.length) return null;
+  return segments.join("/");
+}
+
+function encodeUrlPath(relativePath) {
+  return String(relativePath)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 function getLanAddresses() {
@@ -547,17 +584,17 @@ async function createJobArchive(job) {
   const archiveName = `job-${job.id}.zip`;
   const archivePath = path.join(os.tmpdir(), `job-${job.id}-${crypto.randomUUID()}.zip`);
   const dirs = clientPaths(job.clientId);
-  const outputPaths = job.results.map((item) => path.join(dirs.outputDir, item.outputName));
   const isWindows = process.platform === "win32";
   const psQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-  const windowsScript = `& { Compress-Archive -Force -Path @(${outputPaths.map(psQuote).join(", ")}) -DestinationPath ${psQuote(archivePath)} }`;
+  const windowsScript = `& { Compress-Archive -Force -Path (Join-Path ${psQuote(dirs.outputDir)} '*') -DestinationPath ${psQuote(archivePath)} }`;
 
   await new Promise((resolve, reject) => {
     const proc = isWindows
       ? spawn("powershell.exe", ["-NoProfile", "-Command", windowsScript], {
           stdio: ["ignore", "ignore", "pipe"]
         })
-      : spawn("zip", ["-j", "-q", archivePath, ...outputPaths], {
+      : spawn("zip", ["-r", "-q", archivePath, "."], {
+          cwd: dirs.outputDir,
           stdio: ["ignore", "ignore", "pipe"]
         });
     let stderr = "";
@@ -688,6 +725,33 @@ async function makeUniqueFilenameInDir(fileName, dirPath) {
   }
 }
 
+async function makeUniqueRelativePathInDir(relativePath, dirPath) {
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized) {
+    throw new Error("Missing relative path.");
+  }
+
+  const ext = path.posix.extname(normalized);
+  const base = path.posix.basename(normalized, ext);
+  const dir = path.posix.dirname(normalized);
+  let candidate = normalized;
+  let counter = 1;
+
+  while (true) {
+    try {
+      await fsp.access(path.join(dirPath, candidate));
+      const nextName = `${base}_${counter}${ext}`;
+      candidate = dir === "." ? nextName : `${dir}/${nextName}`;
+      counter += 1;
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return candidate;
+      }
+      throw error;
+    }
+  }
+}
+
 async function makeUniqueFilename(fileName) {
   return makeUniqueFilenameInDir(fileName, UPLOAD_ROOT);
 }
@@ -695,12 +759,18 @@ async function makeUniqueFilename(fileName) {
 async function compressFile(job, fileName, fileIndex) {
   const dirs = clientPaths(job.clientId);
   const inputPath = path.join(dirs.uploadDir, fileName);
-  const ext = path.extname(fileName);
-  const baseName = path.basename(fileName, ext);
-  const safeBase = sanitizeBaseName(baseName);
-  const outputName = await makeUniqueFilenameInDir(fileName, dirs.outputDir);
+  const normalizedInput = normalizeRelativePath(fileName);
+  const ext = path.posix.extname(normalizedInput || fileName);
+  const baseName = path.posix.basename(normalizedInput || fileName, ext);
+  const safeBase = sanitizeBaseName((normalizedInput || fileName).replace(/[\/\\]/g, "_"));
+  const outputName = await makeUniqueRelativePathInDir(normalizedInput || fileName, dirs.outputDir);
   const outputPath = path.join(dirs.outputDir, outputName);
-  const passBase = path.join(dirs.passlogDir, `${safeBase}_${job.id}`);
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  const passBaseFs = path.join(dirs.passlogDir, `${safeBase}_${job.id}`);
+  const passBase = path
+    .relative(ROOT_DIR, passBaseFs)
+    .split(path.sep)
+    .join("/");
   const duration = await probeDuration(inputPath);
   const profile = ENCODE_PROFILES[job.profileKey] || ENCODE_PROFILES.tight;
   const pass1Params = X265_PARAMS.replace("{pass}", "1").replace("{stats}", passBase);
@@ -817,7 +887,7 @@ async function compressFile(job, fileName, fileIndex) {
     job.results.push({
       source: fileName,
       outputName,
-      outputPath: `/exports/${encodeURIComponent(job.clientId)}/${encodeURIComponent(outputName)}`,
+      outputPath: `/exports/${encodeURIComponent(job.clientId)}/${encodeUrlPath(outputName)}`,
       size: stats.size
     });
     pushLog(job, `${fileName} exported as ${outputName}.`);
@@ -826,7 +896,7 @@ async function compressFile(job, fileName, fileIndex) {
     if (!job.results.some((item) => item.outputName === outputName)) {
       await fsp.unlink(outputPath).catch(() => {});
     }
-    await cleanupPassLogs(passBase);
+    await cleanupPassLogs(passBaseFs);
   }
 }
 
@@ -998,9 +1068,23 @@ async function handleApi(req, res, pathname, clientId) {
         return true;
       }
 
-      const safeName = baseName.replace(/[^\p{L}\p{N}\-_.]+/gu, "_");
-      const uniqueName = await makeUniqueFilenameInDir(safeName, dirs.uploadDir);
+      const rawRelativePath = typeof req.headers["x-relative-path"] === "string" ? req.headers["x-relative-path"] : baseName;
+      const decodedRelativePath = (() => {
+        try {
+          return decodeURIComponent(rawRelativePath);
+        } catch {
+          return rawRelativePath;
+        }
+      })();
+      const relativePath = normalizeRelativePath(decodedRelativePath || baseName);
+      if (!relativePath) {
+        sendJson(res, 400, { error: "Missing relative path." });
+        return true;
+      }
+
+      const uniqueName = await makeUniqueRelativePathInDir(relativePath, dirs.uploadDir);
       const filePath = path.join(dirs.uploadDir, uniqueName);
+      await fsp.mkdir(path.dirname(filePath), { recursive: true });
       await writeRequestBodyToFile(req, filePath);
       const stats = await fsp.stat(filePath);
       sendJson(res, 201, { name: uniqueName, size: stats.size });
