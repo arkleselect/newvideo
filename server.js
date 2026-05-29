@@ -47,9 +47,9 @@ const ENCODE_PROFILES = {
     description: "兼容性最好，但通常体积会更大。",
     videoCodec: "libx264",
     videoTag: "avc1",
-    videoBitrate: "56k",
+    videoBitrate: "31k",
     passParamName: "x264-params",
-    audioBitrate: "24k"
+    audioBitrate: "16k"
   }
 };
 const SUPPORTED_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"]);
@@ -260,7 +260,7 @@ async function listSourceVideos(clientId) {
         name: relativePath,
         size: stats.size,
         modifiedAt: stats.mtimeMs,
-        folder: relativePath.includes("/") ? relativePath.split("/")[0] : ""
+        folder: folderFromRelativePath(relativePath)
       });
     }
   }
@@ -285,7 +285,9 @@ function toClientJob(job) {
     files: job.files,
     currentIndex: job.currentIndex,
     currentFile: job.currentFile,
+    currentFolder: job.currentFolder,
     currentFiles: job.currentFiles || [],
+    currentFolders: job.currentFolders || [],
     stage: job.stage,
     progress: job.progress,
     logs: job.logs.slice(-10),
@@ -359,6 +361,13 @@ function percentageFor(index, total, partial) {
 
 function sanitizeBaseName(name) {
   return name.replace(/[^\p{L}\p{N}\-_]+/gu, "_");
+}
+
+function folderFromRelativePath(relativePath) {
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized) return "根目录";
+  const dir = path.posix.dirname(normalized);
+  return dir === "." ? "根目录" : dir;
 }
 
 function sanitizePathSegment(name) {
@@ -782,6 +791,7 @@ async function compressFile(job, fileName, fileIndex) {
   const secondPassParams = profile.videoCodec === "libx264"
     ? `pass=2:stats=${passBase}:keyint=250:min-keyint=1:scenecut=40`
     : pass2Params;
+  const sourceFolder = folderFromRelativePath(fileName);
   const updateFileState = (progress, status) => {
     if (!job.fileStates || !job.fileStates[fileIndex]) return;
     job.fileStates[fileIndex].progress = Math.max(0, Math.min(100, Number(progress.toFixed(2))));
@@ -886,6 +896,7 @@ async function compressFile(job, fileName, fileIndex) {
     const stats = await fsp.stat(outputPath);
     job.results.push({
       source: fileName,
+      folder: sourceFolder,
       outputName,
       outputPath: `/exports/${encodeURIComponent(job.clientId)}/${encodeUrlPath(outputName)}`,
       size: stats.size
@@ -907,11 +918,14 @@ async function runJobFiles(job) {
 
   job.fileStates = job.files.map((fileName) => ({
     fileName,
+    folder: folderFromRelativePath(fileName),
     status: "queued",
     progress: 0
   }));
   job.currentFiles = [];
+  job.currentFolders = [];
   job.currentFile = null;
+  job.currentFolder = null;
   job.currentIndex = 0;
   job.progress = 0;
   job.stage = "preparing";
@@ -922,7 +936,11 @@ async function runJobFiles(job) {
     job.currentFiles = job.fileStates
       .filter((item) => item.status === "running")
       .map((item) => item.fileName);
+    job.currentFolders = Array.from(new Set(
+      job.fileStates.filter((item) => item.status === "running").map((item) => item.folder)
+    ));
     job.currentFile = job.currentFiles[0] || null;
+    job.currentFolder = job.currentFolders[0] || null;
     job.updatedAt = Date.now();
   };
 
@@ -974,28 +992,36 @@ async function runJobFiles(job) {
     job.stage = "done";
     job.progress = 100;
     job.currentFiles = [];
+    job.currentFolders = [];
     job.currentFile = null;
+    job.currentFolder = null;
     pushLog(job, "Job completed.");
   } catch (error) {
     if (fatalError) {
       job.status = "failed";
       job.stage = "failed";
       job.currentFiles = [];
+      job.currentFolders = [];
       job.currentFile = null;
+      job.currentFolder = null;
       job.errors.push(String(fatalError.message || fatalError));
       pushLog(job, `Job failed: ${String(fatalError.message || fatalError)}`);
     } else if (error && (error.code === "ABORT_ERR" || job.cancelRequested)) {
       job.status = "canceled";
       job.stage = "canceled";
       job.currentFiles = [];
+      job.currentFolders = [];
       job.currentFile = null;
+      job.currentFolder = null;
       job.progress = Math.min(job.progress, 100);
       pushLog(job, "Job canceled.");
     } else {
       job.status = "failed";
       job.stage = "failed";
       job.currentFiles = [];
+      job.currentFolders = [];
       job.currentFile = null;
+      job.currentFolder = null;
       job.errors.push(String(error.message || error));
       pushLog(job, `Job failed: ${String(error.message || error)}`);
     }
@@ -1003,6 +1029,7 @@ async function runJobFiles(job) {
     job.updatedAt = Date.now();
     job.currentProcesses = null;
     job.currentFiles = job.currentFiles || [];
+    job.currentFolders = job.currentFolders || [];
   }
 }
 

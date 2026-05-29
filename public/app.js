@@ -127,9 +127,17 @@ function renderSummary() {
 
   const job = state.activeJob || state.latestJob;
   const currentFiles = state.activeJob?.currentFiles || [];
+  const currentFolders = state.activeJob?.currentFolders || [];
+  const currentFolder = currentFolders.length > 1
+    ? `${currentFolders[0]} 等 ${currentFolders.length} 个文件夹`
+    : currentFolders[0] || state.activeJob?.currentFolder || "根目录";
   currentFile.textContent = currentFiles.length > 1
-    ? `${currentFiles[0]} 等 ${currentFiles.length} 个`
-    : currentFiles[0] || state.activeJob?.currentFile || "-";
+    ? `${currentFolder} / ${currentFiles[0]} 等 ${currentFiles.length} 个`
+    : currentFiles[0]
+      ? `${currentFolder} / ${currentFiles[0]}`
+      : state.activeJob?.currentFile
+        ? `${currentFolder} / ${state.activeJob.currentFile}`
+        : "-";
 
   const statusText = job
     ? `状态: ${job.status} | 阶段: ${job.stage}${job.profileLabel ? ` | 方案: ${job.profileLabel}` : ""}${job.concurrency ? ` | 并行: ${job.concurrency}` : ""}`
@@ -185,7 +193,7 @@ function renderResults(job) {
         <article class="result-card">
           <div class="result-meta">
             <strong>${escapeHtml(item.outputName)}</strong>
-            <span>来源: ${escapeHtml(item.source)} | ${formatBytes(item.size)}</span>
+            <span>文件夹: ${escapeHtml(item.folder || "根目录")} | 来源: ${escapeHtml(item.source)} | ${formatBytes(item.size)}</span>
           </div>
           <div class="result-links">
             <a class="download-link" href="${item.outputPath}" download>下载</a>
